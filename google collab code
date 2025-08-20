@@ -1,1 +1,50 @@
 
+!pip install ultralytics opencv-python pandas
+
+from ultralytics import YOLO
+import cv2, os, shutil, glob
+from collections import Counter
+import pandas as pd
+from google.colab import files
+
+uploaded = files.upload()
+video_name = list(uploaded.keys())[0]
+
+model = YOLO("yolov8n.pt")
+
+results = model.track(
+    source=video_name,
+    tracker="bytetrack.yaml",
+    conf=0.5,
+    save=True,
+    project=".",
+    name="tracked",
+    exist_ok=True
+)
+
+output_files = glob.glob("tracked/*.mp4") + glob.glob("tracked/*.avi")
+if output_files:
+    latest_output = output_files[0]
+    shutil.copy(latest_output, "output.mp4")
+    files.download("output.mp4")
+
+cap = cv2.VideoCapture(video_name)
+object_counter = Counter()
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    results = model(frame, verbose=False)
+    for box in results[0].boxes:
+        if box.conf.item() > 0.6:
+            class_id = int(box.cls.item())
+            class_name = model.names[class_id]
+            object_counter[class_name] += 1
+cap.release()
+
+df = pd.DataFrame(object_counter.items(), columns=["Object", "Count"]).sort_values(by="Count", ascending=False)
+print(df.to_string(index=False))
+
+df.to_csv("detections.csv", index=False)
+files.download("detections.csv")
